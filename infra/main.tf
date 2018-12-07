@@ -30,7 +30,7 @@ data "aws_subnet" "selected" {
 
 resource "aws_security_group" "jenkins_sg" {
   vpc_id      = "${var.vpc_id}"
-  name        = "Jenkins Security Group"
+  name        = "${var.name}"
   description = "Jenkins Security Group"
 
   egress {
