@@ -1,0 +1,23 @@
+---
+
+- name: validate - component - is set
+  fail:
+    msg: "a valid component must be set for this environment"
+  when:
+    - component is not defined
+    - component not in vpcs
+
+- name: validate - env - is set
+  fail:
+    msg: "a valid env var"
+  when:
+    - env is not defined
+
+# TODO: add an allowed_regions dict to global.yml
+- name: validate - region - is set and allowed
+  fail:
+    msg: "a valid and allowed region has to be set"
+  when:
+    - region is not defined
+    - region not in allowed_regions
+    - not allowed_regions[region]

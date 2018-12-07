@@ -1,0 +1,39 @@
+---
+
+- name: Create Elastic Load Balancers
+  local_action:
+    module: ec2_elb_lb
+    name: "{{ item.name }}"
+    state: "{{ item.state | default(state) }}"
+    region: "{{ region }}"
+    subnets: "{{ item.subnets }}"
+    idle_timeout: "{{ item.idle_timeout | default(idle_timeout) }}"
+    listeners:
+      - protocol: "{{ item.protocol | default(protocol) }}"
+        load_balancer_port: "{{ item.elb_port | default(elb_port)}}"
+        instance_protocol: "{{ item.instance_protocol | default(instance_protocol) }}"
+        instance_port: "{{ item.instance_port | default(instance_port) }}"
+        ssl_certificate_id: "{{ item.ssl_certificate_id | default(none) }}"
+    health_check:
+      ping_protocol: "{{ item.ping_protocol | default(instance_protocol) }}"
+      ping_port: "{{ item.instance_port | default(instance_port) }}"
+      response_timeout: "{{ item.response_timeout | default(response_timeout) }}"
+      interval: "{{ item.interval | default(interval) }}"
+      unhealthy_threshold: "{{ item.unhealthy_threshold | default(unhealthy_threshold) }}"
+      healthy_threshold: "{{ item.healthy_threshold | default(healthy_threshold) }}"
+    access_logs:
+      interval: "{{ item.log_interval | default(log_interval) }}"
+      s3_location: "{{ item.elb_bucket | default(elb_bucket) }}"
+      s3_prefix: "{{ item.s3_prefix | default(item.name) }}"
+    purge_instance_ids: "{{ purge_instances }}"
+    purge_subnets: "{{ purge_subnets }}"
+    purge_listeners: "{{ purge_listeners }}"
+    purge_zones: "{{ purge_zones }}"
+    scheme: "{{ item.scheme | default(scheme) }}"
+    connection_draining_timeout: "{{ item.conn_drain_timeout | default(conn_drain_timeout) }}"
+    cross_az_load_balancing: "{{ item.cross_az | default(cross_az) }}"
+    security_group_names: "{{ item.sg_names }}"
+    tags: "{{ item.tags }}"
+  with_items: "{{ aws_elb }}"
+  loop_control:
+    label: "{{ item.name }}"

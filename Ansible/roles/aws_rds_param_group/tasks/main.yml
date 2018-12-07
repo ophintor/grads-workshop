@@ -1,0 +1,13 @@
+---
+
+- name: create RDS parameter group
+  rds_param_group:
+    name: "{{ item.name }}"
+    state: present
+    region: "{{ region }}"
+    params: "{{ item.params }}"
+    state: present
+    engine: "{{ item.engine }}"
+    description: "{{ item.description }}"
+  with_items: "{{ rds_param_group }}"
+

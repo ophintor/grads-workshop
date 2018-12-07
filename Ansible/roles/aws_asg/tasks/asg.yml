@@ -1,0 +1,89 @@
+---
+
+# ------------------------------------------------------------
+# asgs
+# ------------------------------------------------------------
+#
+# provision autoscaling groups in the specified aws account /
+# region
+#
+
+- name: output instances
+  debug:
+    var: instances
+    verbosity: 3
+
+- name: get topic arn
+  shell: "aws sns list-topics --region {{ region }} | jq -r '.Topics[].TopicArn | select(contains(\"MGT-{{ account_env | upper }}-AUTOSCALE-T\"))'"
+  register: topic_arn_output
+  changed_when: false
+  until: topic_arn_output.failed is not defined or topic_arn_output.failed == false
+  retries: "3"
+  delay: "10"
+
+- name: set topic
+  set_fact:
+    topic_arn: "{{ topic_arn_output.stdout }}"
+
+- name: create all asgs
+  ec2_asg:
+    name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-ASG"
+    region: "{{ region }}"
+    load_balancers: "{{ item.load_balancers | default([]) }}"
+    availability_zones: "{{ item.azs | default([]) }}"
+    # The name of the launch config is how Ansible decides whether to create the LC or not,
+    # so we need the name to change if the AMI changes or the userdata script changes.
+    #
+    # Must of this name is obvious, however the part for the userdata change could be confusing, but we...
+    #
+    # 1. Read the contents of the template
+    # 2. Pass that through the MD5 hash function
+    # 3. Take the first 6 characters of the generated hash
+    launch_config_name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-{{ item.ami_id | upper }}-{{ lookup('template', template_src) | hash('md5') | regex_search('^[a-zA-Z0-9]{6}') }}-LC"
+    min_size: "{{ item.min_size | default(0) }}"
+    max_size: "{{ item.max_size | default(1) }}"
+    vpc_zone_identifier: "{{ item.vpc_zone_identifier | default([]) }}"
+    notification_topic: "{{ topic_arn }}"
+    notification_types: ['autoscaling:EC2_INSTANCE_LAUNCH']
+    suspend_processes: "{{ item.suspend_processes | default([]) }}"
+    target_group_arns: "{{ item.target_group_arns | default([]) }}"
+    tags:
+      - "{{ default_tags | combine(item.tags | default({})) }}"
+      - AutoShutdownLastEvent: "1970-01-01 00:00:00.000000"
+  with_items: "{{ instances }}"
+  loop_control:
+    label: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-ASG"
+  register: asg_created
+  when: (start_instance is not defined)
+  until: asg_created.failed is not defined or asg_created.failed == false
+  retries: "6"
+  delay: "10"
+
+- name: create lifecyle hooks
+  ec2_asg_lifecycle_hook:
+    region: "{{ region }}"
+    state: present
+    autoscaling_group_name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-ASG"
+    lifecycle_hook_name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-LIFECYCLE"
+    transition: autoscaling:EC2_INSTANCE_TERMINATING
+    notification_target_arn: "{{ topic_arn }}"
+    role_arn: "arn:aws:iam::{{ item.account_id }}:role/{{ item.sns_iam_profile }}"
+    default_result: ABANDON
+    heartbeat_timeout: "{{ item.heartbeat_timeout | default('3600') }}"
+  with_items: "{{ instances }}"
+  loop_control:
+    label: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-ASG"
+  when: (item.lifecyclehook | default(false)) and item.lifecyclehook == true
+
+- name: start autoscaling group
+  ec2_asg:
+    name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-ASG"
+    region: "{{ region }}"
+    launch_config_name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-{{ item.ami_id | upper }}-LC"
+    desired_capacity: "{{ item.desired_capacity | default(1) }}"
+  with_items: "{{ instances }}"
+  loop_control:
+    label: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-ASG"
+  when: (start_instance is defined
+        and start_instance)
+

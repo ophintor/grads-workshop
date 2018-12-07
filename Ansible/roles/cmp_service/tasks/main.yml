@@ -1,0 +1,9 @@
+---
+
+- include: "service_validate.yml"
+  static: no
+
+- name: "action mode: {{ mode }}, service: {{ service }}, component: {{ component }}, env: {{ env }}, region: {{ region }}"
+  include: "service_{{ mode }}.yml"
+  static: no
+

@@ -1,0 +1,34 @@
+---
+
+# defaults for ELBs
+d_elb_lns_protocol: tcp
+d_elb_lns_load_balancer_port: 443
+d_elb_lns_instance_protocol: tcp
+d_elb_lns_instance_port: 4380
+d_elb_hc_ping_protocol: tcp
+d_elb_hc_ping_port: 4380
+d_elb_hc_response_timeout: 2
+d_elb_hc_interval: 5
+d_elb_hc_unhealthy_threshold: 2
+d_elb_hc_healthy_threshold: 3
+d_elb_purge_instance_ids: no
+d_elb_purge_subnets: yes
+d_elb_purge_listeners: yes
+d_elb_purge_zones: yes
+d_elb_scheme: internal
+d_elb_cross_az_load_balancing: no
+d_elb_security_group_names: []
+
+
+# defaults for ASGs
+d_asg_ami_id: "{{ lastest_ami_id }}"
+d_asg_account_id: "{{ aws_account_ids[account_env] }}"
+d_asg_key_name: "{{ key_name }}"
+d_asg_instance_type: 't2.medium'
+d_asg_subnet_type: pri
+d_asg_assign_public_ip: no
+d_asg_max_size: 1
+d_asg_desired_capacity: 1
+d_asg_instance_iam_profile: "APP-{{ env | upper }}-DEFAULT-EC2-ROLE"
+d_asg_sns_iam_profile: "MGT-{{ account_env| upper }}-DEFAULT-SNS-ROLE"
+d_asg_lifecyclehook: true

@@ -1,0 +1,22 @@
+---
+
+- name: Create amazon web services elastic network interface
+  ec2_eni:
+    description: "{{ item.description | default(omit) }}"
+    private_ip_address: "{{ item.private_ip }}"
+    region: "{{ region }}"
+    security_groups: "{{ item.security_groups }}"
+    state: present
+    subnet_id: "{{ item.subnet_id }}"
+  with_items: "{{ aws_network_enis }}"
+  register: eni
+
+- name: Tag the interface
+  ec2_tag:
+    region: "{{ region }}"
+    resource: "{{ item[1].interface.id }}"
+    state: present
+    tags: "{{ item[0].tags }}"
+  with_together:
+    - "{{ aws_network_enis }}"
+    - "{{ eni.results }}"

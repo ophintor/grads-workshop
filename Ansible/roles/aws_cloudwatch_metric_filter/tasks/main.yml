@@ -1,0 +1,13 @@
+---
+
+- name: create CloudWatch Metric Filter
+  cloudwatch_metric_filter:
+    region: "{{ region }}"
+    log_group_name: "{{ item.log_group_name }}"
+    filter_name: "{{ item.filter_name }}"
+    filter_pattern: "{{ item.filter_pattern }}"
+    metric_transformations: "{{ item.metric_transformations }}"
+    state: "{{ item.state | default('present') }}"
+  when: item.when_to_run is undefined or item.when_to_run == env
+  with_items: "{{ cloudwatch_metric_filters }}"
+

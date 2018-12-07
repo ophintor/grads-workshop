@@ -1,0 +1,52 @@
+---
+
+# ------------------------------------------------------------
+# subnets
+# ------------------------------------------------------------
+#
+# provision the required subnets & rds subnet groups in the
+# specified aws account / region
+#
+
+- include: validate.yml
+
+- name: getting availability zones for region
+  set_fact:
+    availability_zones: "{{ lookup('aws_available_azs_by_region', (region), wantlist=True) }}"
+
+- name: create subnets
+  ec2_vpc_subnet:
+    state: "{{ item.1.state | default('present') }}"
+    vpc_id: "{{ vpc_id | default(lookup('aws_vpc_id_from_name', (region, item.1.vpc_name | upper))) }}"
+    region: "{{ region }}"
+    cidr: "{{ item.1.cidr_block }}"
+
+    # We pick the availabilty zone for the subnet by rotating through the available zones.
+    # This means, if we have for example 2 availablity zones and 3 subnets, one of our
+    # zones will have two subnets in it (the first and last will exist in the same zone)
+    az: "{{ (item.1.az is defined) | ternary(item.1.az, availability_zones[item.0 % availability_zones | length]) }}"
+
+    # you *MUST* apply all of the tags on the creation due to the way the
+    # ansible module does it's lookup, if you add tags after creation,
+    # the module will always report a change
+    tags: >
+      {{
+        {
+          'Name': component | upper + '-' + env | upper + '-' + item.1.type | upper + '-SN-' + (item.0 + 1) | string + ((item.1.az is defined) | ternary(item.1.az, availability_zones[item.0 % availability_zones | length]))[-1] | upper
+        } |
+        combine(default_tags | combine(item.1.tags | default({})))
+      }}
+  # we use with_indexed_items so that we have a count of the items we're
+  # looping through, we then use this count to lookup the availability
+  # zone for the subnet
+  #
+  # the count is help in item.0 and the actual item is help in item.1
+  with_indexed_items: "{{ subnets }}"
+  when: (subnets | length > 0)
+  register: _provisioned_subnets
+
+- name: vpcs | output `_provisioned_subnets` variable
+  debug:
+    var: _provisioned_subnets
+    verbosity: 3
+

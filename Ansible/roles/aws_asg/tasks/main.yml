@@ -1,0 +1,17 @@
+---
+
+# ------------------------------------------------------------
+# asgs
+# ------------------------------------------------------------
+#
+# provision autoscaling groups in the specified aws account /
+# region
+#
+
+- include: volumes.yml
+
+# Create Launch Configuration
+- include: lc.yml
+
+# Create Autoscaling Group
+- include: asg.yml

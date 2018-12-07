@@ -1,0 +1,9 @@
+---
+
+- include: "network_validate.yml"
+  static: no
+
+- name: "action mode: {{ mode }}, component: {{ component }}, env: {{ env }}, region: {{ region }}"
+  include: "network_{{ mode }}.yml"
+  static: no
+

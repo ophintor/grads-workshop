@@ -1,0 +1,30 @@
+---
+
+- name: create buckets and policies
+  s3_bucket:
+    name: "{{ item.name }}"
+    serverside_encryption_configuration: "{{ item.serverside_encryption_configuration | default({}) }}"
+    acl: "{{ item.acl | default('private') }}"
+    state: present
+    region: "{{ region }}"
+    encryption: "{{ item.encryption | default('absent') }}"
+    tags: >
+      {{
+        default_tags | combine(item.tags | default({}))
+      }}
+    versioning: "{{ item.versioning | default('yes') }}"
+    policy: "{{ lookup('template', component_dir + '/templates/s3_policies/' + item.policy) }}"
+  when: (s3_buckets is defined and s3_buckets | length > 0 )
+  with_items: "{{ s3_buckets }}"
+
+
+- name: Enable logging of s3 bucket
+  s3_logging:
+    name: "{{ item.name }}"
+    target_bucket: "{{ item.target_bucket }}"
+    target_prefix: "{{ item.target_prefix }}"
+    state: present
+    region: "{{ region }}"
+  when: (s3_logging is defined and s3_logging | length > 0)
+  with_items: "{{ s3_logging }}"
+

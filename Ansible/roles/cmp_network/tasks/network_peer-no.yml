@@ -1,0 +1,91 @@
+---
+
+- name: get facts for VPC
+  ec2_vpc_net_facts:
+    region: "{{ region }}"
+    filters:
+      "tag:Name": "{{ component | upper }}-{{ env | upper }}-VPC"
+  register: _component_vpc
+
+- debug:
+    var: _component_vpc.vpcs
+ #   verbosity: 2
+
+- name: "create peering requests for ({{ vpcs[component].long_name  }}) vpc"
+  ec2_vpc_peer:
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    peer_vpc_id: "{{ lookup('aws_vpc_id_from_name', (region, item.component | upper + '-' + item.env | upper + '-VPC')) }}"
+    state: present
+    tags:
+      Name: "{{ env | upper + '-SRC-' + component | upper + '-DEST-' + item.component | upper + '-PEER' }}"
+  with_items: "{{ vpcs[component].peers }}"
+  register: _vpc_peers
+  when:
+    - component in vpcs
+    - ( "peers" in vpcs[component] )
+
+- debug:
+    var: _vpc_peers
+#    verbosity: 2
+
+- name: "Accept peering requests for ({{ vpcs[component].long_name }}) vpc"
+  ec2_vpc_peer:
+    region: "{{ region }}"
+    peering_id: "{{ item.peering_id }}"
+    state: accept
+    tags:
+      Name: "{{ env | upper + '-SRC-' + component | upper + '-DEST-' + item.item | upper + '-PEER' }}"
+  with_items: "{{ _vpc_peers.results }}"
+  register: _vpc_accept_peers
+  when:
+    - _vpc_peers.results is defined
+    - _vpc_peers.results.0 is defined
+
+- debug:
+    var: _vpc_accept_peers
+    verbosity: 2
+
+- name: "create ({{ vpcs[component].long_name }}) vpc peers source to destination route tables"
+  ec2_vpc_route_table:
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    routes:
+      - dest: "{{ vpcs[item.item.component].vpc_cidr }}"
+        vpc_peering_connection_id: "{{ item.peering_id }}"
+    purge_routes: no
+    subnets: "{{ vpcs[component].subnet_cidrs }}"
+    state: present
+    tags:
+      Name: "{{ component | upper + '-' + env | upper + '-RT' }}"
+  with_items: "{{ _vpc_peers.results }}"
+  register: _vpc_source_route_tables
+  when:
+    - _vpc_peers.results is defined
+    - _vpc_peers.results.0 is defined
+
+- debug:
+    var: _vpc_source_route_tables
+    verbosity: 2
+
+- name: "create ({{ vpcs[component].long_name }}) vpc peers destination to source route tables"
+  ec2_vpc_route_table:
+    region: "{{ region }}"
+    vpc_id: "{{ item.invocation.module_args.peer_vpc_id }}"
+    routes:
+      - dest: "{{ vpcs[component].vpc_cidr }}"
+        vpc_peering_connection_id: "{{ item.peering_id }}"
+    purge_routes: no
+    subnets: "{{ vpcs[item.item].subnet_cidrs }}"
+    state: present
+    tags:
+      Name: "{{ account_env | upper + '-' + item.item | upper + '-RT' }}"
+  with_items: "{{ _vpc_peers.results }}"
+  register: _vpc_dest_route_tables
+  when:
+    - _vpc_peers.results is defined
+    - _vpc_peers.results.0 is defined
+
+- debug:
+    var: _vpc_dest_route_tables
+    verbosity: 2

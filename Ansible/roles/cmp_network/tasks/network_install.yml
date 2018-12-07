@@ -1,0 +1,205 @@
+---
+
+# blank install file
+## VPC Block
+- name: "create ({{ vpcs[component].long_name }}) vpc "
+  ec2_vpc_net:
+    state: present
+    name: "{{ component | upper }}-{{ env | upper }}-VPC"
+    cidr_block: "{{ vpcs[component].vpc_cidr }}"
+    region: "{{ region }}"
+    tenancy: default
+    dns_hostnames: yes
+    dns_support: yes
+    multi_ok: no
+    tags: "{{ default_tags }}"
+  register: _vpc
+
+- debug:
+    var: _vpc
+    verbosity: 2
+
+- name: "create dhcp options set for ({{ vpcs[component].long_name }}) vpc"
+  ec2_vpc_dhcp_options:
+    state: present
+    domain_name: "{{ domains[component] }}"
+    vpc_id: "{{ _vpc.vpc.id }}"
+    region: "{{ region }}"
+    delete_old: yes
+    dns_servers: AmazonProvidedDNS
+    # important: only set the name here, tags specified here are used in the
+    # lookup call, so changing them will cause ansible to report a change
+    # that hasn't actually occured
+    resource_tags: >
+      {{
+        {
+          'Name': component | upper + '-' + env | upper + '-DHCP-OPTIONS'
+        }
+      }}
+  register: _vpc_dhcp_options
+  when:
+    - _vpc.skipped is not defined
+    - _vpc.vpc is defined
+
+- name: "tag dhcp options for ({{ vpcs[component].long_name }}) vpc"
+  ec2_tag:
+    state: present
+    resource: "{{ _vpc_dhcp_options.dhcp_options_id }}"
+    region: "{{ region }}"
+    tags: "{{ default_tags }}"
+  when:
+    - _vpc_dhcp_options.skipped is not defined
+    - _vpc_dhcp_options.dhcp_options_id is defined
+
+- name: "create internet gateway for ({{ vpcs[component].long_name }}) vpc"
+  ec2_vpc_igw:
+    state: present
+    vpc_id: "{{ _vpc.vpc.id }}"
+    region: "{{ region }}"
+  register: _vpc_igw
+  when:
+    - vpcs[component].igw is defined
+    - vpcs[component].igw
+    - _vpc.skipped is not defined
+    - _vpc.vpc is defined
+
+- name: "tag internet gateway for ({{ vpcs[component].long_name }}) vpc"
+  ec2_tag:
+    state: present
+    resource: "{{ _vpc_igw.gateway_id }}"
+    region: "{{ region }}"
+    tags: >
+      {{
+        {
+          'Name': component | upper + '-' + env | upper + '-IGW'
+        } |
+        combine(default_tags)
+      }}
+  when:
+    - _vpc_igw.skipped is not defined
+    - _vpc_igw.gateway_id is defined
+
+
+## FLOW LOGS
+- name: "enable flow logs for ({{ vpcs[component].long_name }}) vpc"
+  ec2_vpc_flow_logs:
+    resource_id:  "{{ _vpc.vpc.id }}"
+    traffic_type: ALL
+    resource_type: VPC
+    log_group_name: "{{ component | upper }}-{{ env | upper }}-VPC-FLOW-LOGS"
+    iam_role_arn: "{{ lookup('aws_iam_role_arn_from_name', (region, 'MGT-' + account_env | upper + '-VPC-FLOWLOG-CLOUDWATCH-COMP-ROLE')) }}"
+    region: "{{ region }}"
+  when:
+    - _vpc.skipped is not defined
+    - _vpc.vpc is defined
+
+## DEFAULT SECURITY GROUP
+- name: "create default security group for ({{ vpcs[component].long_name }}) vpc"
+  ec2_group:
+    name: default
+    state: present
+    description: "default VPC security group"
+    vpc_id:  "{{ _vpc.vpc.id }}"
+    region: "{{ region }}"
+    purge_rules: "{{ (bootstrap) | ternary('no', 'yes') }}"
+    purge_rules_egress: "{{ (bootstrap) | ternary('no', 'yes') }}"
+    rules: "{{ (bootstrap) | ternary([], default_sg_rules) }}"
+    rules_egress: "{{ (bootstrap) | ternary([], default_sg_rules_egress) }}"
+  register: _vpc_sg_default
+  when:
+    - _vpc.skipped is not defined
+    - _vpc.vpc is defined
+
+- name: "tag default security group for ({{ vpcs[component].long_name }}) vpc"
+  ec2_tag:
+    state: present
+    region: "{{ region }}"
+    resource: "{{ _vpc_sg_default.group_id }}"
+    tags: >
+      {{
+        {
+          'Name': component | upper + '-' + env | upper + '-DEFAULT-SG'
+        } |
+        combine(default_tags)
+      }}
+
+## PRIVATE SUBNETS
+- set_fact:
+    _sb_private: []
+
+# NOTE: This var/fact can be set on a sinle line but I have put it as multiple lines to make it readable
+- name: create private subnets var for aws_subnets role
+  set_fact:
+    _sb_private: |
+      {{
+        _sb_private|default([]) +
+        [
+          {
+            'cidr_block': vpcs[ component ].subnet_cidrs[ item ],
+            'vpc_name': component|upper + '-' + env|upper + '-VPC',
+            'type': 'pri'
+          }
+        ]
+      }}
+  with_items: "{{ vpcs[component].private_subnets }}"
+
+- include_role:
+    name: aws_subnets
+  vars:
+    subnets: "{{ _sb_private }}"
+  when:
+    - _sb_private is defined
+    - _sb_private | length > 0
+
+## PUBLIC SUBNETS
+- set_fact:
+    _sb_public: []
+
+- name: create public subnets var for aws_subnets role
+  set_fact:
+    _sb_public: |
+      {{
+        _sb_public|default([]) +
+        [
+          {
+            'cidr_block': vpcs[ component ].subnet_cidrs[ item ],
+            'vpc_name': component|upper + '-' + env|upper + '-VPC',
+            'type': 'pub'
+          }
+        ]
+      }}
+  with_items: "{{ vpcs[component].public_subnets }}"
+
+- include_role:
+    name: aws_subnets
+  vars:
+    subnets: "{{ _sb_public }}"
+  when:
+    - _sb_public is defined
+    - _sb_public | length > 0
+
+## DATA SUBNETS
+- set_fact:
+    _sb_data: []
+- name: create data subnets var for aws_subnets role
+  set_fact:
+    _sb_data: |
+      {{
+        _sb_data|default([]) +
+        [
+          {
+            'cidr_block': vpcs[ component ].subnet_cidrs[ item ],
+            'vpc_name': component|upper + '-' + env|upper + '-VPC',
+            'type': 'data'
+          }
+        ]
+      }}
+  with_items: "{{ vpcs[component].data_subnets }}"
+
+- include_role:
+    name: aws_subnets
+  vars:
+    subnets: "{{ _sb_data }}"
+  when:
+    - _sb_data is defined
+    - _sb_data | length > 0

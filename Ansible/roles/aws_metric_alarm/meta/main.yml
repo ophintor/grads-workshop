@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: Disclosure Scotland
+  description: Manage AWS CloudWatch Alarms from Custom Metrics
+  min_ansible_version: 2.3
+
+dependencies: []

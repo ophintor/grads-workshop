@@ -1,0 +1,45 @@
+---
+
+- name: Create RDS Instance
+  shell: |
+    aws rds create-db-instance \
+    --db-instance-identifier {{ item.instance_name }} \
+    --allocated-storage {{ item.size }} \
+    --db-instance-class {{ item.instance_type }} \ 
+    --engine {{ item.db_engine }} \
+    --master-username {{ item.username }} \
+    --master-user-password {{ item.password }} \
+    --storage-encrypted \
+    --kms-key-id {{ item.kms_key_id }} \
+    {{ (item.multi_zone | default('yes') == 'yes') | ternary('--multi-az', '--no-multi-az') }} \
+    --character-set-name {{ item.character_set_name }} \
+    --db-subnet-group-name {{ item.db_subnet_group }} \
+    --db-parameter-group-name {{ item.db_parameter_group | default('') }} \
+    --option-group-name {{ item.db_option_group | default('') }} \
+    --no-publicly-accessible \
+    --storage-type {{ item.storage_type | default('gp2') }} \
+    --copy-tags-to-snapshot \
+    --backup-retention-period 30 \
+    --vpc-security-group-ids {{ item.security_group_ids }}
+
+
+
+  # rds:
+  #   command: create
+  #   instance_name: "{{ item.instance_name }}"
+  #   account_id: "{{ aws_account_ids[account_env] }}"
+  #   zone: "{{ item.zone  | default ('eu-west-2b'}}"
+  #   db_engine: "{{ item.db_engine }}"
+  #   character_set_name: "{{ item.character_set_name }}"
+  #   size: "{{ item.size }}"
+  #   db_name: "{{ item.db_name }}"
+  #   instance_type: "{{ item.instance_type }}"
+  #   username: "{{ item.username }}"
+  #   password: "{{ item.password }}"
+  #   kms_key_id: caa90dfb-6b8e-48bd-83c1-cace22abe3ff
+  #   multi_zone: "{{ item.multi_zone }}"
+  #   sercurity_groups: "{{ item.sercurity_groups }}"
+
+
+
+

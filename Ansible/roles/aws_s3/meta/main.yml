@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: Disclosure Scotland
+  description: Manage S3 Buckets
+  min_ansible_version: 2.3
+
+dependencies: []

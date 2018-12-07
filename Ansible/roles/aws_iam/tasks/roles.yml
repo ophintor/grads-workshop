@@ -1,0 +1,14 @@
+---
+
+- name: create iam roles
+  iam_role:
+    name: "{{ item.name }}"
+    state: "{{ item.state | default('present') }}"
+    assume_role_policy_document: "{{ lookup('template', component_dir + '/templates/iam_policies/' + item.assume_role_policy_document) }}"
+    managed_policy: "{{ item.managed_policy }}"
+    path: "{{ item.path | default('/') }}"
+  with_items: "{{ iam_roles }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _provisioned_iam_roles
+  when: (iam_roles is defined and iam_roles | length > 0)

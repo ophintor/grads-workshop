@@ -1,0 +1,21 @@
+---
+
+- name: create CloudWatch Metric Alarm
+  ec2_metric_alarm:
+    #Currently there is no option for what do with with "Treat missing data as".  Should be set to "OK".
+    name: "{{ item.name }}"
+    namespace: "{{ item.namespace }}"
+    description: "{{ item.description }}"
+    state: present
+    region: "{{ region }}"
+    metric: "{{ item.metric }}"
+    statistic: "{{ item.statistic | default('SampleCount') }}"
+    comparison: "{{ item.comparison | default('>=') }}"
+    threshold: "{{ item.threshold | default(1) }}"
+    period: "{{ item.period | default(300) }}"
+    evaluation_periods: "{{ item.evaluation_periods | default(1) }}"
+    unit: "{{ item.unit | default('None') }}"
+    alarm_actions: "{{ item.alarm_actions }}"
+  with_items: "{{ ec2_metric_alarm }}"
+
+

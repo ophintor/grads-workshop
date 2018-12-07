@@ -1,0 +1,4 @@
+---
+# Default Variables
+
+template_src: ../../roles/aws_asg/templates/default_setup.sh.j2

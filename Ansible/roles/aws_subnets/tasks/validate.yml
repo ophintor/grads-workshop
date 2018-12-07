@@ -1,0 +1,59 @@
+---
+
+# ------------------------------------------------------------
+# validate vpc variables
+# ------------------------------------------------------------
+#
+# validate we have the variables we expect, in the format we
+# expect
+#
+
+- name: validate `aws_subnets` items have name
+  fail:
+    msg: "Each item in the `aws_subnets` variable must have a name"
+  when: (aws_subnets is defined
+        and (item.name is not defined or item.name == ''))
+  with_items: "{{ aws_subnets }}"
+
+- name: validate `aws_subnets` items have a vpc_name
+  fail:
+    msg: "Each item in the `aws_subnets` variable must have a vpc_name"
+  when: (aws_subnets is defined
+        and (item.vpc_name is not defined or item.vpc_name == ''))
+  with_items: "{{ aws_subnets }}"
+
+- name: validate `aws_subnets` items have cidr_block
+  fail:
+    msg: "Each item in the `aws_subnets` variable must have a cidr_block"
+  when: (aws_subnets is defined
+        and (item.cidr_block is not defined or item.cidr_block == ''))
+  with_items: "{{ aws_subnets }}"
+
+- name: validate `aws_subnets` cidr_blocks are a valid format
+  fail:
+    msg: "{{ item.cidr_block }} does not appear to be a valid CIDR format"
+  # we're not using the ipaddr filter here (which can be installed as a separate package as that only validates that
+  # the string is a valid ip address *or* cidr block - an ip address as the cidr block is invalid
+  when: (aws_subnets is defined
+        and not item.cidr_block | match("^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\/[0-9]{1,2}$"))
+  with_items: "{{ aws_subnets }}"
+
+- name: validate `aws_rds_subnets_groups` items have name
+  fail:
+    msg: "Each item in the `aws_rds_subnets_groups` variable must have a name"
+  when: (aws_rds_subnets_groups is defined
+        and (item.name is not defined or item.name == ''))
+  with_items: "{{ aws_rds_subnets_groups }}"
+
+- name: validate `aws_rds_subnets_groups` items have description
+  fail:
+    msg: "Each item in the `aws_rds_subnets_groups` variable must have a desccription"
+  when: (aws_rds_subnets_groups is defined
+        and (item.description is not defined or item.description == ''))
+  with_items: "{{ aws_rds_subnets_groups }}"
+
+- name: validate `aws_rds_subnets_groups` items have subnets
+  fail:
+    msg: "Each item in the `aws_rds_subnets_groups` variable must have list of subnets"
+  when: (aws_rds_subnets_groups is defined and item.subnets | length < 1)
+  with_items: "{{ aws_rds_subnets_groups }}"

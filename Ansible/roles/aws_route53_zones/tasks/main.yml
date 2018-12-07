@@ -1,0 +1,13 @@
+---
+
+- name: create route53 private hosted zones
+  route53_zone:
+    zone: "{{ item.zone }}"
+    state: "{{ item.state | default('present') }}"
+    vpc_region: "{{ region }}"
+    vpc_id: "{{ lookup('aws_vpc_id_from_name', (region, item.vpc_name)) }}"
+    comment: "{{ item.comment | default('Hosted zone for VPC: ' + item.vpc_name) }}"
+  when: (item.vpc_name is defined
+        and item.vpc_name != ''
+        and route53_zones is defined)
+  with_items: "{{ route53_zones }}"

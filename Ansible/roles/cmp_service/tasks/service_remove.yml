@@ -1,0 +1,202 @@
+# ----------------------------------------
+# Gather facts for VPCs, Components and Services
+# ----------------------------------------
+
+- name: "get facts for ( {{ vpcs[component].long_name }} ) VPC"
+  ec2_vpc_net_facts:
+    region: "{{ region }}"
+    filters:
+      'tag:Name': "{{ component | upper }}-{{ env | upper }}-VPC"
+  register: _vpc
+
+- debug:
+    var: _vpc.vpcs
+    verbosity: 2
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc security groups"
+  ec2_group_facts:
+    region: "{{ region }}"
+    filters:
+      'vpc-id': "{{ _vpc.vpcs.0.id }}"
+      'tag:Environment': "{{ vpcs[component].long_name | lower }} / {{ env }}"
+      'tag:LogicalComponent': "{{ vpcs[component].long_name }}"
+      'tag:ServiceName': "{{ service }}"
+  register: _srvc_sgs
+  when:
+    - _vpc.skipped is not defined
+    - _vpc.vpcs.0 is defined
+
+- debug:
+    var: _srvc_sgs.security_groups
+    verbosity: 2
+
+- name: "get facts for {{ service }} ({{ vpcs[component].long_name }}) vpc auto scaling groups(s)"
+  ec2_asg_facts:
+    region: "{{ region }}"
+    tags:
+      Environment: "{{ vpcs[component].long_name | lower }} / {{ env }}"
+      LogicalComponent: "{{ vpcs[component].long_name }}"
+      ServiceName: "{{ service }}"
+  register: _srvc_asgs
+  when:
+    - _vpc.skipped is not defined
+    - _vpc.vpcs.0 is defined
+
+- debug:
+    var: _srvc_asgs
+    verbosity: 2
+
+- name: "get facts for ELBs"
+  ec2_elb_facts:
+    region: "{{ region }}"
+  register: _srvc_elbs
+
+- debug:
+    var: _srvc_elbs
+    verbosity: 2
+
+# ----------------------------------------
+# Remove ASGs and Launch Configs
+# ----------------------------------------
+
+- name: "remove {{ service }} ({{ vpcs[component].long_name }}) vpc auto scaling groups(s)"
+  ec2_asg:
+    state: absent
+    region: "{{ region }}"
+    name: "{{ item.auto_scaling_group_name }}"
+    launch_config_name: "{{ item.launch_configuration_name }}"
+  with_items: "{{ _srvc_asgs.results }}"
+  when:
+    - _srvc_asgs.results is defined
+    - _srvc_asgs.results.skipped is not defined
+
+- name: "remove {{ service }} ({{ vpcs[component].long_name }}) vpc launch configuration(s)"
+  ec2_lc:
+    state: absent
+    region: "{{ region }}"
+    name: "{{ item.launch_configuration_name }}"
+  with_items: "{{ _srvc_asgs.results }}"
+  when:
+    - _srvc_asgs.results is defined
+    - _srvc_asgs.results.skipped is not defined
+
+# ----------------------------------------
+# Remove ELBS
+# ----------------------------------------
+
+- name: "remove {{ service }} ({{ vpcs[component].long_name }}) elbs"
+  ec2_elb_lb:
+    region: "{{ region }}"
+    name: "{{ item }}"
+    state: absent
+  with_items: "{{ _srvc_elbs|json_query(elb_qry) }}"
+  vars:
+    elb_qry: "elbs[?tags.ServiceName=='{{ service }}' || tags.DS_Environment=='{{ env }}' || tags.LogicalComponent=='{{ vpcs[component].long_name }}'].name "
+  register: _removed_elbs
+
+# NOTE, json_query this uses 'JMESPath', google it!!!! (also used in cloudformation)
+
+- debug:
+    var: _removed_elbs
+    verbosity: 2
+
+# ----------------------------------------
+# Purge and remove service security groups
+#
+# Part 1, purge the security groups
+#
+# ----------------------------------------
+
+- name: "purge {{ service }} ({{ vpcs[component].long_name }}) vpc security groups(s)"
+  ec2_group:
+    state: present
+    purge_rules: true
+    purge_rules_egress: true
+    rules: []
+    rules_egress: []
+    region: "{{ region }}"
+    vpc_id: "{{ _vpc.vpcs.0.id }}"
+    name: "{{ item.group_name }}"
+    description: "{{ item.description }}"
+  with_items: "{{ _srvc_sgs.security_groups }}"
+  when:
+    - _srvc_sgs.security_groups is defined
+    - _srvc_sgs.security_groups.skipped is not defined
+
+# ----------------------------------------
+# Purge and remove service security groups
+#
+# Part 2, Wait for ENIs attached to the Public and Private ELBs to be removed
+#
+# ----------------------------------------
+
+# TODO: review service code to standardise the naming convention for ELBs. Some are named -ELB and some are -LB
+- name: "Wait upto 2 mins (12 x 10 secs) for PRIVATE ELB ENI to be deleted/removed [ ELB {{ component | upper }}-{{ env | upper }}-PRI-{{ service | upper }}-ELB ]"
+  ec2_eni_facts:
+    region: "{{ region }}"
+    filters:
+      description: "ELB {{ component | upper }}-{{ env | upper }}-PRI-{{ service | upper }}-ELB"
+  register: _enis_private_elb
+  until: _enis_private_elb.network_interfaces | length == 0
+  retries: 12
+  delay: 10
+  ignore_errors: yes
+
+- name: "Wait upto 2 mins (12 x 10 secs) for PUBLIC ELB ENI to be deleted/removed [ ELB {{ component | upper }}-{{ env | upper }}-PUB-{{ service | upper }}-ELB ]"
+  ec2_eni_facts:
+    region: "{{ region }}"
+    filters:
+      description: "ELB {{ component | upper }}-{{ env | upper }}-PUB-{{ service | upper }}-ELB"
+  register: _enis_public_elb
+  until: _enis_public_elb.network_interfaces | length == 0
+  retries: 12
+  delay: 10
+  ignore_errors: yes
+
+- debug:
+    var: _enis_private_elb
+    verbosity: 3
+
+- debug:
+    var: _enis_public_elb
+    verbosity: 3
+
+- name: "Wait upto 2 mins (12 x 10 secs) for PRIVATE (E)LB ENI to be deleted/removed [ ELB {{ component | upper }}-{{ env | upper }}-PRI-{{ service | upper }}-LB ]"
+  ec2_eni_facts:
+    region: "{{ region }}"
+    filters:
+      description: "ELB {{ component | upper }}-{{ env | upper }}-PRI-{{ service | upper }}-LB"
+  register: _enis_private_el
+  until: _enis_private_el.network_interfaces | length == 0
+  retries: 12
+  delay: 10
+  ignore_errors: yes
+
+- name: "Wait upto 2 mins (12 x 10 secs) for PUBLIC (E)LB ENI to be deleted/removed [ ELB {{ component | upper }}-{{ env | upper }}-PUB-{{ service | upper }}-LB ]"
+  ec2_eni_facts:
+    region: "{{ region }}"
+    filters:
+      description: "ELB {{ component | upper }}-{{ env | upper }}-PUB-{{ service | upper }}-LB"
+  register: _enis_public_el
+  until: _enis_public_el.network_interfaces | length == 0
+  retries: 12
+  delay: 10
+  ignore_errors: yes
+
+# ----------------------------------------
+# Purge and remove service security groups
+#
+# Part 3, remove the security groups after waiting for ELB ENIs to be destroyed
+#
+# ----------------------------------------
+
+- name: delete security groups(s)
+  ec2_group:
+    state: absent
+    region: "{{ region }}"
+    vpc_id: "{{ _vpc.vpcs.0.id }}"
+    name: "{{ item.group_name }}"
+  with_items: "{{ _srvc_sgs.security_groups }}"
+  when:
+    - _srvc_sgs.security_groups is defined
+    - _srvc_sgs.security_groups.skipped is not defined

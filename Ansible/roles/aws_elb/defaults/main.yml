@@ -1,0 +1,26 @@
+---
+# defaults file for aws-elb
+
+state: present
+region: eu-west-2
+protocol: tcp
+elb_port: 443
+idle_timeout: 60
+instance_protocol: tcp
+instance_port: 443
+ping_protocol: tcp
+response_timeout: 2
+interval: 10
+unhealthy_threshold: 3
+healthy_threshold: 10
+log_interval: 60
+account_env: prod
+elb_bucket: "ds-aud-{{ account_env }}-elb-logs"
+purge_instances: no
+purge_subnets: yes
+purge_listeners: yes
+purge_zones: yes
+conn_drain_timeout: 300
+scheme: internal
+cross_az: yes
+

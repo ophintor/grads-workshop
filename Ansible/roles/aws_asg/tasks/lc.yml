@@ -1,0 +1,38 @@
+---
+
+# ------------------------------------------------------------
+# launch configurations
+# ------------------------------------------------------------
+#
+# create launch configuration in the specified aws account /
+# region
+#
+- name: output instances
+  debug:
+    var: instances
+    verbosity: 3
+
+- name: create launch configurations
+  ec2_lc:
+    # The name of the launch config is how Ansible decides whether to create the LC or not,
+    # so we need the name to change if the AMI changes or the userdata script changes.
+    #
+    # Must of this name is obvious, however the part for the userdata change could be confusing, but we...
+    #
+    # 1. Read the contents of the template
+    # 2. Pass that through the MD5 hash function
+    # 3. Take the first 6 characters of the generated hash
+    name: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-{{ item.ami_id | upper }}-{{ lookup('template', template_src) | hash('md5') | regex_search('^[a-zA-Z0-9]{6}') }}-LC"
+    state: "{{ item.state | default('present') }}"
+    region: "{{ region }}"
+    image_id: "{{ item.ami_id }}"
+    key_name: "{{ item.key_name }}"
+    instance_type: "{{ item.instance_type }}"
+    security_groups: "{{ item.security_groups }}"
+    user_data: "{{ lookup('template', item.template_src | default(template_src)) }}"
+    instance_profile_name: "{{ item.instance_iam_profile }}"
+    assign_public_ip: "{{ item.assign_public_ip | default('no') }}"
+    ebs_optimized: "{{ item.ebs_optimized | default('no') }}"
+  with_items: "{{ instances }}"
+  loop_control:
+    label: "{{ component | upper }}-{{ env | upper }}-{{ item.subnet_type | upper }}-{{ item.name | upper }}-{{ item.ami_id | upper }}-{{ lookup('template', template_src) | hash('md5') | regex_search('^[a-zA-Z0-9]{6}') }}-LC"

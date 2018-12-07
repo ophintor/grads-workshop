@@ -1,0 +1,123 @@
+---
+
+- name: Setup environment for lambda
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  become: no
+
+  pre_tasks:
+    - name: setting component facts
+      set_fact:
+        name: User1
+        region: eu-west-1
+        account_id: 591596706747
+        state: absent
+
+  tasks:
+
+    # --------------------------------------------------------
+    # S3 
+    # --------------------------------------------------------
+
+    - s3_bucket:
+        name: "{{ name | lower }}-bucket-source"
+        state: "{{ state }}"
+        region: "{{ region}}"
+
+    - s3_bucket:
+        name: "{{ name | lower }}-bucket-destination"
+        state: "{{ state }}"
+        region: "{{ region }}"
+
+    # --------------------------------------------------------
+    # SNS 
+    # --------------------------------------------------------
+
+    - sns_topic:
+        name: "{{ name }}-Topic"
+        state: "{{ state }}"
+        display_name: "{{ name }}-SNS"
+        region: "{{ region }}"
+        policy: >
+          {
+            "Version": "2012-10-17",
+            "Id": "arn:aws:sns:{{ region }}:{{ account_id }}:{{ name }}-Topic/SNSDefaultPolicy",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "*"
+                },
+                "Action": "SNS:Publish",
+                "Resource": "arn:aws:sns:{{ region }}:{{ account_id }}:{{ name }}-Topic",
+                "Condition": {
+                  "ArnLike": {
+                    "aws:SourceArn": "arn:aws:s3:::{{ name | lower }}-bucket-source"
+                  }
+                }
+              }
+            ]
+          }
+        
+    # --------------------------------------------------------
+    # SQS 
+    # --------------------------------------------------------
+
+    - sqs_queue:
+        name: "{{ name }}-SQS"
+        default_visibility_timeout: 300
+        region: "{{ region }}"
+        policy: >
+          {
+            "Version": "2012-10-17",
+            "Id": "arn:aws:sqs:{{ region }}:{{ account_id }}:{{ name }}-SQS/SQSDefaultPolicy",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "*"
+                },
+                "Action": "SQS:SendMessage",
+                "Resource": "arn:aws:sqs:{{ region }}:{{ account_id }}:{{ name }}-SQS",
+                "Condition": {
+                  "ArnEquals": {
+                    "aws:SourceArn": "arn:aws:sns:{{ region }}:{{ account_id }}:{{ name }}-Topic"
+                  }
+                }
+              }
+            ]
+          }
+
+    # --------------------------------------------------------
+    # IAM 
+    # --------------------------------------------------------
+
+    - iam_role:
+        name: "{{ name }}-Lambda-Role"
+        state: "{{ state }}"
+        managed_policy:
+          - arn:aws:iam::aws:policy/AmazonS3FullAccess
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+        assume_role_policy_document: >
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Principal": {
+                  "Service": "lambda.amazonaws.com"
+                },
+                "Action": "sts:AssumeRole"
+              }
+            ]
+          }
+
+    # --------------------------------------------------------
+    # Manual Steps
+    # 
+    # 1 - Link SQS to SNS
+    # 2 - S3 Event to SNS Topic
+    # 3 - SQS to trigger Lambda (Make Lambda in console and then make sure to go back and link in SQS)
+    # 
+    # --------------------------------------------------------      

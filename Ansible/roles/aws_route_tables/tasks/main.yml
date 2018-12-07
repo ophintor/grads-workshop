@@ -1,0 +1,40 @@
+---
+
+# ----------------------------------------
+# route tables
+# ----------------------------------------
+
+- name: create route tables
+  ec2_vpc_route_table:
+    state: "{{ item.state | default('present') }}"
+    vpc_id: "{{ lookup('aws_vpc_id_from_name', (aws_region, item.vpc_name)) }}"
+    region: "{{ aws_region }}"
+    tags: >
+      {{
+        {
+          'Name': item.name
+        } |
+        combine(aws_default_compulsory_tags | combine(item.tags | default({})))
+      }}
+    routes: "{{ item.routes }}"
+    subnets: "{{ item.subnets }}"
+  with_items: "{{ aws_route_tables }}"
+  when: (aws_route_tables is defined and aws_route_tables | length > 0)
+  register: _aws_route_tables_provisioned_route_tables
+
+- name: output `_aws_route_tables_provisioned_route_tables` variable
+  debug:
+    var: _aws_route_tables_provisioned_route_tables
+    verbosity: 3
+
+# - name: tag route tables
+#   ec2_tag:
+#     state: present
+#     resource: "{{ lookup('aws_route_table_id_from_name', (aws_region, item.name)) }}"
+#     region: "{{ aws_region }}"
+#     tags: >
+#       {{
+#         aws_default_compulsory_tags | combine(item.tags | default({}))
+#       }}
+#   with_items: "{{ aws_route_tables }}"
+#   when: (_aws_route_tables_provisioned_route_tables and aws_route_tables is defined and aws_route_tables | length > 0)

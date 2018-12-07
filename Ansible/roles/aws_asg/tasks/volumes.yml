@@ -1,0 +1,33 @@
+---
+
+# ------------------------------------------------------------
+# launch configurations
+# ------------------------------------------------------------
+#
+# create any extra required volumes
+
+- name: create persistent volumes
+  ec2_vol:
+    name: "{{ item.1.name }}"
+    state: present
+    region: "{{ region }}"
+    volume_size: "{{ item.1.volume_size }}"
+    zone: "{{ item.1.zone }}"
+    volume_type: "{{ item.1.volume_type | default('gp2') }}"
+    encrypted: yes
+    kms_key_id: "{{ item.0.kms_key_id | default(default_kms_key_id) }}"
+    delete_on_termination: "{{ item.1.delete_on_termination | default('no') }}"
+    tags: >
+      {{ 
+        { 
+          'Name': item.1.name
+        } |
+        combine(default_tags)
+      }}
+  with_subelements:
+    - "{{ instances }}"
+    - volumes
+    - flags:
+      skip_missing: True
+  loop_control:
+    label: "{{ item.1.name }}"

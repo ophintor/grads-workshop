@@ -1,0 +1,15 @@
+---
+
+- name: create and attach inline policies
+  iam_policy:
+    policy_name: "{{ item.name }}"
+    state: "{{ item.state | default('present') }}"
+    region: "{{ region }}"
+    iam_name: "{{ item.iam_name }}"
+    iam_type: "{{ item.iam_type }}"
+    policy_json: "{{ lookup('template', component_dir + '/templates/iam_policies/' + item.policy_document) }}"
+  with_items: "{{ iam_inline_policies }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _provisioned_iam_inline_policies
+  when: (iam_inline_policies is defined and iam_inline_policies | length > 0)

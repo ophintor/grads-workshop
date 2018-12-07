@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# Setup environment variables that allow http traffic to be routed through the Squid Proxy server with the exception of AWS specific calls.
+{% if item.name != 'FWDPXY' %}
+export http_proxy=http://fwdpxy.con-{{ account_env | lower }}.{{ account_env | lower }}.aws.ds.cloud:3128/
+export https_proxy=https://fwdpxy.con-{{ account_env | lower }}.{{ account_env | lower }}.aws.ds.cloud:3128/
+export NO_PROXY=169.254.169.254,ec2.eu-west-2.amazonaws.com
+{% else %}
+sed -i --follow-symlinks "s/^proxy.*/#proxy=/g" /etc/yum.conf
+{% endif %}
+
+# Collect some local details which will be needed later in this script
+export REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/[abc]$//')
+export INSTANCEID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+ipaddr=`/sbin/ifconfig eth0 | grep "inet" | awk  '{print $2}'`
+
+AWS_CLI="/root/.local/bin/aws"
+SHORT_INSTANCE_ID=`sed 's/i-//' <<< "$INSTANCEID" | cut -c 1-9`
+DOMAIN_APEX="{{ domains[component] }}"
+INSTANCE_HOSTNAME="{{ item.name | lower }}-"$SHORT_INSTANCE_ID".$DOMAIN_APEX"
+
+if [ ! -x $AWS_CLI ]; then
+  chmod 755 $AWS_CLI
+fi
+
+# Set up hostname
+hostnamectl set-hostname --static $INSTANCE_HOSTNAME
+
+$AWS_CLI ec2 create-tags --region $REGION --resources $INSTANCEID --tags Key="Name",Value="$INSTANCE_HOSTNAME"
+$AWS_CLI ec2 create-tags --region $REGION --resources $INSTANCEID --tags Key="DomainApex",Value="$DOMAIN_APEX"
+
+# Get any volumes required
+{% if item.volumes is defined %}
+{% for vol in item.volumes %}
+volume_id_{{ loop.index }}=$($AWS_CLI ec2 describe-volumes --region $REGION --filters Name=status,Values=available Name=tag:Name,Values={{ vol.name }} | grep "VolumeId" | awk '{print $2}' | sed 's/[\",]//g')
+
+if [[ $volume_id_{{ loop.index }} ]]
+then
+	$AWS_CLI ec2 attach-volume --region $REGION --device /dev/sdh --instance-id $INSTANCEID --volume-id $volume_id_{{ loop.index }}
+fi
+{% endfor %}
+{% endif %}
+
+# the awscli tools interfere with the IPA registration due to conflicting library versions so once we have performed the
+# required actions, we'll remove the package
+pip uninstall -y awscli
+rm -rf /root/.local/
+
+systemctl restart firewalld
+
+/opt/puppetlabs/bin/puppet config set environment {{ puppet_env }} --section main
+
+{% if item.env == 'devint' %}
+if `grep -qi ^runinterval /etc/puppetlabs/puppet/puppet.conf`
+then
+  sed -i --follow-symlinks "s/^runinterval.*/runinterval=300/g" /etc/puppetlabs/puppet/puppet.conf
+else
+  echo -e "\n" | tee -a /etc/puppetlabs/puppet/puppet.conf
+  echo -e "runinterval=300" | tee -a /etc/puppetlabs/puppet/puppet.conf
+fi
+{% endif %}
+
+echo -e "FACTER_environment={{ puppet_env }}" | tee -a /etc/sysconfig/puppet
+mkdir -p /etc/puppetlabs/code/environments/{{ puppet_env }}
+/opt/puppetlabs/bin/puppet resource service puppet ensure=running enable=true

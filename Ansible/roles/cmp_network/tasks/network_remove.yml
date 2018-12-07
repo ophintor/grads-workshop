@@ -1,0 +1,315 @@
+---
+
+# ----------------------------------------
+# Gather Facts about VPC and Component
+# ----------------------------------------
+
+- name: "get facts for ({{ vpcs[component].long_name }}) VPC"
+  ec2_vpc_net_facts:
+    region: "{{ region }}"
+    filters:
+      "tag:Name": "{{ component | upper }}-{{ env | upper }}-VPC"
+  register: _component_vpc
+
+- debug:
+    var: _component_vpc.vpcs
+    verbosity: 2
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc security groups"
+  ec2_group_facts:
+    region: "{{ region }}"
+    filters:
+      vpc-id:  "{{ _component_vpc.vpcs.0.id }}"
+      'tag:Environment': "{{ vpcs[component].long_name | lower }} / {{ env }}"
+  register: _component_vpc_security_groups
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- debug:
+    var: _component_vpc_security_groups.security_groups
+    verbosity: 2
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc igws"
+  ec2_vpc_igw_facts:
+    region: "{{ region }}"
+    filters:
+      "attachment.vpc-id": "{{ _component_vpc.vpcs.0.id }}"
+  register: _component_vpc_igw
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- debug:
+    var: _component_vpc_igw
+    verbosity: 2
+
+- name: "get facts for ({{ vpcs[component].long_name }}) (not main) route tables"
+  ec2_vpc_route_table_facts:
+    region: "{{ region }}"
+    filters:
+      vpc-id: "{{ _component_vpc.vpcs.0.id }}"
+      association.main: false
+  register: _component_vpc_route_tables
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- debug:
+    var: _component_vpc_route_tables
+    verbosity: 2
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc subnets"
+  ec2_vpc_subnet_facts:
+    region: "{{ region }}"
+    filters:
+      vpc-id: "{{ _component_vpc.vpcs.0.id }}"
+  register: _component_vpc_subnets
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- debug:
+    var: _component_vpc_subnets
+    verbosity: 3
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc auto scaling groups(s)"
+  ec2_asg_facts:
+    region: "{{ region }}"
+    tags:
+      Environment: "{{ vpcs[component].long_name | lower }} / {{ env }}"
+  register: _component_asgs
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- debug:
+    var: _component_asgs
+    verbosity: 2
+
+## Remove ASGs and Launch Configs
+#- name: "remove ({{ vpcs[component].long_name }}) vpc auto scaling groups(s)"
+#  ec2_asg:
+#    state: absent
+#    region: "{{ region }}"
+#    name: "{{ item.auto_scaling_group_name }}"
+#    launch_configuration_name: "{{ item.launch_configuration_name }}"
+#  with_items: "{{ _component_asgs.results }}"
+#  when:
+#    - _component_asgs.results is defined
+#    - _component_asgs.results.skipped is not defined
+#
+#- name: "remove ({{ vpcs[component].long_name }}) vpc launch configuration(s)"
+#  ec2_lc:
+#    state: absent
+#    region: "{{ region }}"
+#    nname: "{{ item.launch_configuration_name }}"
+#  with_items: "{{ _component_asgs.results }}"
+#  when:
+#    - _component_asgs.results is defined
+#    - _component_asgs.results.skipped is not defined
+
+# ----------------------------------------
+# Remove Security Groups
+#
+# Part 1, purge the rules
+# ----------------------------------------
+
+- name: "purge ({{ vpcs[component].long_name }}) vpc security groups(s)"
+  ec2_group:
+    state: present
+    purge_rules: true
+    purge_rules_egress: true
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    name: "{{ item.group_name }}"
+    description: "{{ item.description }}"
+  with_items: "{{ _component_vpc_security_groups.security_groups }}"
+  when:
+    - _component_vpc_security_groups.security_groups is defined
+    - _component_vpc_security_groups.security_groups.skipped is not defined
+
+# ----------------------------------------
+# Remove Route Tables
+# ----------------------------------------
+
+- name: "remove ({{ vpcs[component].long_name }}) vpc route table(s)"
+  ec2_vpc_route_table:
+    state: absent
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    route_table_id: "{{ item.id }}"
+    lookup: id
+  with_items: "{{ _component_vpc_route_tables.route_tables }}"
+  when:
+    - _component_vpc_route_tables.route_tables is defined
+    - _component_vpc_route_tables.route_tables.skipped is not defined
+  register: _remove_rt
+
+- debug:
+    var: _remove_rt
+    verbosity: 2
+
+# ----------------------------------------
+# Remove Subnets
+# ----------------------------------------
+
+- name: "remove ({{ vpcs[component].long_name }}) vpc subnets(s)"
+  ec2_vpc_subnet:
+    state: absent
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    cidr: "{{ item.cidr_block }}"
+  with_items: "{{ _component_vpc_subnets.subnets }}"
+  when:
+    - _component_vpc_subnets.subnets is defined
+    - _component_vpc_subnets.subnets.skipped is not defined
+
+#    - name: delete security groups(s)
+#      ec2_group:
+#        state: absent
+#        region: "{{ region }}"
+#        vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+#        name: "{{ item.group_name }}"
+#      with_items: "{{ _component_vpc_security_groups.security_groups }}"
+#      when:
+#        - _component_vpc_security_groups.security_groups is defined
+#        - _component_vpc_security_groups.security_groups.skipped is not defined
+
+# ----------------------------------------
+# Remove Peers
+#
+# Part 1, use CLI to get a list of the peered VPCs
+# ----------------------------------------
+
+# We are using the aws cli as there is peer_facts is in ver 2.4
+- name: "get peers for ({{ vpcs[component].long_name }}) vpc"
+  command: aws ec2 describe-vpc-peering-connections --filters "Name=status-code,Values=active" "Name=requester-vpc-info.vpc-id,Values={{ _component_vpc.vpcs.0.id }}"
+  register: _aws_cli_peers
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- set_fact: _component_vpc_peers="{{ _aws_cli_peers.stdout | from_json | json_query('VpcPeeringConnections[*].VpcPeeringConnectionId')}}"
+  when: _aws_cli_peers.stdout is defined
+
+- debug:
+    var: _component_vpc_peers
+    verbosity: 2
+
+# ----------------------------------------
+# Remove Peers
+#
+# Part 2, remove the peers
+# ----------------------------------------
+
+- name: "remove peer for vpc ({{ vpcs[component].long_name }}) vpc"
+  ec2_vpc_peer:
+    state: absent
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    peering_id: "{{ item }}"
+  with_items: "{{ _component_vpc_peers }}"
+  when:
+    - _component_vpc_peers is defined
+    - _component_vpc_peers.0 is defined
+
+
+# this block is a little messy, we can't delete route tables that have an attribute 'main' == true
+# the strategy is to get two lists: all the route tables, and main route tables
+# the remove statement has a when to skip any items in the main route table list
+
+# ----------------------------------------
+# Remove Route Tables
+#
+# NOTE, don't remove the main route tables
+# ----------------------------------------
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc route tables"
+  ec2_vpc_route_table_facts:
+    region: "{{ region }}"
+    filters:
+      vpc-id: "{{ _component_vpc.vpcs.0.id }}"
+  register: _component_vpc_route_tables
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- name: debug route table search (all)
+  debug:
+    var: _component_vpc_route_tables
+    verbosity: 2
+
+- name: "get facts for ({{ vpcs[component].long_name }}) vpc main route tables"
+  ec2_vpc_route_table_facts:
+    region: "{{ region }}"
+    filters:
+      vpc-id: "{{ _component_vpc.vpcs.0.id }}"
+      "association.main": "true"
+  register: _component_vpc_route_tables_main
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+- name: debug route table search main = true
+  debug:
+    var: _component_vpc_route_tables_main
+    verbosity: 2
+
+- name: "remove ({{ vpcs[component].long_name }}) vpc route table(s)"
+  ec2_vpc_route_table:
+    state: absent
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+    route_table_id: "{{ item.id }}"
+    lookup: id
+  with_items: "{{ _component_vpc_route_tables.route_tables }}"
+  register: _remove_rt
+  when:
+    - _component_vpc_route_tables.route_tables is defined
+    - _component_vpc_route_tables.route_tables.skipped is not defined
+    - item.id not in ( _component_vpc_route_tables_main.route_tables | map(attribute='id') | list )
+
+- debug:
+    var: _remove_rt
+    verbosity: 2
+
+# ----------------------------------------
+# Remove Internet Gateways
+# ----------------------------------------
+
+- name: "remove ({{ vpcs[component].long_name }}) vpc igw(s)"
+  ec2_vpc_igw:
+    state: absent
+    region: "{{ region }}"
+    vpc_id: "{{ _component_vpc.vpcs.0.id }}"
+  when:
+    - _component_vpc_igw.internet_gateways is defined
+    - _component_vpc_igw.internet_gateways.skipped is not defined
+
+# ----------------------------------------
+# Remove DHCP Options sets
+# ----------------------------------------
+
+- name: "remove ({{ vpcs[component].long_name }}) vpc dhcp options set"
+  ec2_vpc_dhcp_options:
+    state: absent
+    region: "{{ region }}"
+    dhcp_options_id: "{{ _component_vpc.vpcs.0.dhcp_options_id }}"
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined
+
+# ----------------------------------------
+# Remove the VPC
+# ----------------------------------------
+
+- name: "remove ({{ vpcs[component].long_name }}) vpc"
+  ec2_vpc_net:
+    state: absent
+    region: "{{ region }}"
+    name: "{{ _component_vpc.vpcs.0.tags.Name }}"
+    cidr_block: "{{ _component_vpc.vpcs.0.cidr_block }}"
+  when:
+    - _component_vpc.skipped is not defined
+    - _component_vpc.vpcs.0 is defined

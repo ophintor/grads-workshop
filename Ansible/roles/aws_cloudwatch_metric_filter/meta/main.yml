@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: Disclosure Scotland
+  description: Create AWS CloudWatch Metric Filters
+  min_ansible_version: 2.3
+
+dependencies: []

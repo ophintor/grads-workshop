@@ -1,0 +1,48 @@
+---
+
+- name: create groups
+  ec2_group:
+    name: "{{ item.name }}"
+    state: "{{ item.state | default('present') }}"
+    description: "{{ item.description | default('') }}"
+    vpc_id: "{{ lookup('aws_vpc_id_from_name', (region, item.vpc_name)) }}"
+    region: "{{ region }}"
+    purge_rules: "{{ (bootstrap) | ternary('no', 'yes') }}"
+    purge_rules_egress: "{{ (bootstrap) | ternary('no', 'yes') }}"
+    rules: "{{ (bootstrap) | ternary([], item.inbound_rules | default([])) }}"
+    rules_egress: "{{ (bootstrap) | ternary([], item.outbound_rules | default([])) }}"
+  with_items: "{{ security_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (security_groups is defined and security_groups | length > 0)
+  register: sg_created
+  until: sg_created.failed is not defined or sg_created.failed == false
+  retries: "6"
+  delay: "10"
+
+- debug:
+    var: sg_created
+    verbosity: 2
+
+- debug:
+    var: security_groups
+    verbosity: 2
+
+- name: tag groups
+  ec2_tag:
+    state: present
+    region: "{{ region }}"
+    resource: "{{ item.group_id }}"
+    tags: >
+      {{
+        {
+          'Name': item.item.name
+        } |
+        combine(default_tags | combine( tags_qry | default({} )))
+      }}
+  when: (security_groups is defined and security_groups | length > 0)
+  with_items: "{{ sg_created.results }}"
+  vars:
+    tags_qry: "{{ security_groups | selectattr('name','equalto',item.item.name) | map(attribute='tags') | list | first }}"
+  loop_control:
+    label: "{{ item.group_id }}"
