@@ -97,7 +97,7 @@ resource "null_resource" "chmod" {
 
 resource "aws_instance" "jenkins_master" {
   ami                         = "${data.aws_ami.amzn2_linux_latest.image_id}"
-  instance_type               = "t2.small"
+  instance_type               = "t2.medium"
   subnet_id                   = "${data.aws_subnet.selected.id}"
   availability_zone           = "${data.aws_subnet.selected.availability_zone}"
   vpc_security_group_ids      = ["${aws_security_group.jenkins_sg.id}"]
