@@ -9,10 +9,10 @@
   pre_tasks:
     - name: setting component facts
       set_fact:
-        name: User1
+        name: Alastair1
         region: eu-west-1
-        account_id: 591596706747
-        state: absent
+        account_id: 630872479193
+        state: present
 
   tasks:
 
