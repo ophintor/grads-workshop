@@ -14,7 +14,7 @@ node {
         stage('Publish')
         sh '''
           zip index.zip index.js
-          aws lambda  update-function-code --region eu-west-1 --function-name  CalumSQSQueueLambda --zip-file fileb://index.zip
+          aws lambda  update-function-code --region eu-west-1 --function-name  calumSQSQueueLambda --zip-file fileb://index.zip
         '''
     }
 }
