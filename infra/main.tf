@@ -30,7 +30,11 @@ data "aws_subnet" "selected" {
 
 resource "aws_security_group" "jenkins_sg" {
   vpc_id      = "${var.vpc_id}"
+<<<<<<< Updated upstream
   name        = "${var.name}"
+=======
+  name        = "${var.name} Security Group"
+>>>>>>> Stashed changes
   description = "Jenkins Security Group"
 
   egress {
