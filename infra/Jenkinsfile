@@ -12,5 +12,9 @@ node {
         stage('Integration Test')
 
         stage('Publish')
+        sh '''
+          zip index.zip index.js
+          aws lambda  update-function-code --region eu-west-1 --function-name  david --zip-file fileb://index.zip
+        '''
     }
 }
