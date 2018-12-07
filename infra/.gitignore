@@ -1,0 +1,5 @@
+*.tfstate*
+keys/
+vpc.auto.tfvars
+.terraform
+.gitconfig
