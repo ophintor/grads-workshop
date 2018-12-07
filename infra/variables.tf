@@ -1,6 +1,6 @@
 variable "name" {
   description = "Your own name that will identify some of the resources."
-  default     = "david"
+  default     = "sophia"
 }
 
 variable "vpc_id" {}
